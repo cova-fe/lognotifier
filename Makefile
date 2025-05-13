@@ -49,8 +49,11 @@ LAUNCHD_EXEC_PATH := $(shell realpath $(APP_NAME))
 # --- End Installation Variables ---
 
 
-# Variable for the temporary iconset directory
-TEMP_ICONSET_DIR := $(shell mktemp -d -t $(APP_NAME)_iconset_XXXX)
+# Variable for the temporary base directory for icon creation
+TEMP_BASE_DIR := $(shell mktemp -p /tmp -d -t $(APP_NAME)_icon_XXXX)
+# Variable for the actual iconset directory (must end with .iconset)
+ICONSET_DIR := $(TEMP_BASE_DIR)/AppIcon.iconset
+@echo "Temporary iconset directory: $(ICONSET_DIR)"
 
 define read-version
 	$(shell cat $(VERSION_FILE) | awk '{$$1=$$1};1')
@@ -143,7 +146,7 @@ clean:
 	rm -f "$(LAUNCHAGENT_PLIST_SRC)"
 	rm -rf "$(INSTALL_DIR)/$(BUNDLE_NAME)"
 	rm -f "$(INSTALLED_LAUNCHAGENT_PLIST)"
-	rm -rf "$(TEMP_ICONSET_DIR)"
+	rm -rf "$(TEMP_BASE_DIR)"
 
 # Run the app
 run: build
@@ -196,18 +199,17 @@ git-tag:
 # Generate the standalone Info.plist file for the macOS application bundle
 generate-bundle-plist:
 	@echo "Generating bundle Info.plist: $(BUNDLE_PLIST_SRC)..."
-	@# --- Error Handling: Check required variables and VERSION_FILE ---
-	@[ -n "$(APP_NAME)" ] || { echo "Error: APP_NAME variable is not set!"; exit 1; }; \
-	@[ -n "$(BUNDLE_ID)" ] || { echo "Error: BUNDLE_ID variable is not set!"; exit 1; }; \
-	@[ -f $(VERSION_FILE) ] || { echo "Error: $(VERSION_FILE) not found!"; exit 1; }; \
-	grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' $(VERSION_FILE) || { echo "Error: $(VERSION_FILE) content is not in major.minor.patch format!"; exit 1; }; \
-	# --- End Error Handling ---
-	# Use the HEREDOC to create the plist file
-	@ eval "$$heredoc_bundle_plist"
-	@echo "$(BUNDLE_PLIST_SRC) generated."
+	@sh -c '\
+	[ -n "$(APP_NAME)" ] || { echo "Error: APP_NAME variable is not set!"; exit 1; }; \
+	[ -n "$(BUNDLE_ID)" ] || { echo "Error: BUNDLE_ID variable is not set!"; exit 1; }; \
+	[ -f $(VERSION_FILE) ] || { echo "Error: $(VERSION_FILE) not found!"; exit 1; }; \
+	grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' $(VERSION_FILE) || { echo "Error: $(VERSION_FILE) content is not in major.minor.patch format!"; exit 1; }'\
+	; \
+	eval "$$heredoc_bundle_plist"
+	echo "$(BUNDLE_PLIST_SRC) generated."
 
 # Generate the standalone plist file for a LaunchAgent
-generate-launchagent-plist: build # Depends on build to ensure executable exists for realpath
+generate-launchagent-plist: build
 	@echo "Generating LaunchAgent plist: $(LAUNCHAGENT_PLIST_SRC)..."
 	@sh -c '\
 	[ -n "$(APP_NAME)" ] || { echo "Error: APP_NAME variable is not set!"; exit 1; }; \
@@ -215,77 +217,56 @@ generate-launchagent-plist: build # Depends on build to ensure executable exists
 	[ -n "$(LAUNCHD_EXEC_PATH)" ] || { echo "Error: LAUNCHD_EXEC_PATH variable is not set!"; exit 1; }; \
 	[ -f $(VERSION_FILE) ] || { echo "Error: $(VERSION_FILE) not found!"; exit 1; }; \
 	grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' $(VERSION_FILE) || { echo "Error: $(VERSION_FILE) content is not in major.minor.patch format!"; exit 1; }; \
-	[ -x "$(LAUNCHD_EXEC_PATH)" ] || { echo "Warning: LAUNCHD_EXEC_PATH ($(LAUNCHD_EXEC_PATH)) does not exist or is not executable at build time. Ensure the path is correct for the runtime environment."; } \
-	'
-	@ eval "$$heredoc_launchagent_plist"
-	@echo "$(LAUNCHAGENT_PLIST_SRC) generated."
-
+	[ -x "$(LAUNCHD_EXEC_PATH)" ] || { echo "Warning: LAUNCHD_EXEC_PATH ($(LAUNCHD_EXEC_PATH)) does not exist or is not executable at build time. Ensure the path is correct for the runtime environment."; }'\
+	; \
+	eval "$$heredoc_launchagent_plist"
+	echo "$(LAUNCHAGENT_PLIST_SRC) generated."
 
 # Create a macOS application bundle (.app)
-macos-bundle: build generate-bundle-plist # Depends on build and the bundle plist
+macos-bundle: build generate-bundle-plist
 	@echo "Creating macOS bundle $(BUNDLE_NAME)..."
-	@# --- Error Handling: Check if ICON_PNG is set and exists, and if bundle plist exists ---
-	@[ -n "$(ICON_PNG)" ] || { echo "Error: ICON_PNG variable is not set!"; exit 1; }; \
-	@[ -f "$(ICON_PNG)" ] || { echo "Error: ICON_PNG file not found: $(ICON_PNG)!"; exit 1; }; \
-	@[ -f "$(BUNDLE_PLIST_SRC)" ] || { echo "Error: Bundle plist not found: $(BUNDLE_PLIST_SRC)! Run 'make generate-bundle-plist' first."; exit 1; }
-	# --- End Error Handling ---
-	# Clean up previous bundle if it exists
-	rm -rf "$(BUNDLE_NAME)" # Use quotes just in case APP_NAME has spaces
-	# Create the directory structure
-	mkdir -p "$(MACOS_DIR)" "$(RESOURCES_DIR)" # Use quotes and group for clarity
-	# Copy the executable
-	cp "$(APP_NAME)" "$(BUNDLE_EXECUTABLE)" # Use quotes
-	# Copy the generated Info.plist into the bundle (renaming it to Info.plist)
-	cp "$(BUNDLE_PLIST_SRC)" "$(BUNDLE_PLIST_DEST)" # Use quotes
-
-	@echo "Generating iconset from $(ICON_PNG) in temporary directory $(TEMP_ICONSET_DIR)..."
-	# Create the temporary iconset directory
-	mkdir -p "$(TEMP_ICONSET_DIR)" # Use quotes
-	# Generate PNGs for iconutil using sips
-	# Note: 1024x1024 is needed for icon_512x512@2x.png
-	sips -z 16 16 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_16x16.png" || { echo "Error generating icon_16x16.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 32 32 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_16x16@2x.png" || { echo "Error generating icon_16x16@2x.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 32 32 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_32x32.png" || { echo "Error generating icon_32x32.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 64 64 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_32x32@2x.png" || { echo "Error generating icon_32x32@2x.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 128 128 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_128x128.png" || { echo "Error generating icon_128x128.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 256 256 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_128x128@2x.png" || { echo "Error generating icon_128x128@2x.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 256 256 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_256x256.png" || { echo "Error generating icon_256x256.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 512 512 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_256x256@2x.png" || { echo "Error generating icon_256x256@2x.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 512 512 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_512x512.png" || { echo "Error generating icon_512x512.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-	sips -z 1024 1024 "$(ICON_PNG)" --out "$(TEMP_ICONSET_DIR)/icon_512x512@2x.png" || { echo "Error generating icon_512x512@2x.png!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-
-	# Use iconutil to generate the .icns file from the temporary iconset directory
-	iconutil -c icns "$(TEMP_ICONSET_DIR)" -o "$(BUNDLE_ICON)" || { echo "Error creating icon with iconutil!"; rm -rf "$(TEMP_ICONSET_DIR)"; exit 1; }
-
-	# Clean up the temporary iconset directory
-	rm -rf "$(TEMP_ICONSET_DIR)"
+	@sh -c '\
+	[ -n "$(ICON_PNG)" ] || { echo "Error: ICON_PNG variable is not set!"; exit 1; }; \
+	[ -f "$(ICON_PNG)" ] || { echo "Error: ICON_PNG file not found: $(ICON_PNG)!"; exit 1; }; \
+	[ -f "$(BUNDLE_PLIST_SRC)" ] || { echo "Error: Bundle plist not found: $(BUNDLE_PLIST_SRC)! Run '\''make generate-bundle-plist'\'' first."; exit 1; }'\
+	; \
+	rm -rf "$(BUNDLE_NAME)"; \
+	mkdir -p "$(MACOS_DIR)" "$(RESOURCES_DIR)"; \
+	cp "$(APP_NAME)" "$(BUNDLE_EXECUTABLE)"; \
+	cp "$(BUNDLE_PLIST_SRC)" "$(BUNDLE_PLIST_DEST)"; \
+	echo "Generating iconset from $(ICON_PNG) in temporary directory $(ICONSET_DIR)..."; \
+	mkdir -p "$(ICONSET_DIR)"; \
+	sips -z 16 16 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_16x16.png" || { echo "Error generating icon_16x16.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 32 32 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_16x16@2x.png" || { echo "Error generating icon_16x16@2x.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 32 32 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_32x32.png" || { echo "Error generating icon_32x32.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 64 64 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_32x32@2x.png" || { echo "Error generating icon_32x32@2x.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 128 128 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_128x128.png" || { echo "Error generating icon_128x128.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 256 256 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_128x128@2x.png" || { echo "Error generating icon_128x128@2x.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 256 256 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_256x256.png" || { echo "Error generating icon_256x256.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 512 512 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_256x256@2x.png" || { echo "Error generating icon_256x256@2x.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 512 512 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_512x512.png" || { echo "Error generating icon_512x512.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	sips -z 1024 1024 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_512x512@2x.png" || { echo "Error generating icon_512x512@2x.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	iconutil -c icns "$(ICONSET_DIR)" -o "$(BUNDLE_ICON)" || { echo "Error creating icon with iconutil!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
+	rm -rf "$(TEMP_BASE_DIR)"
 
 	@echo "Bundle created: $(BUNDLE_NAME)"
-
 
 # Install the macOS application bundle to the Applications folder based on INSTALL_ROOT
 macos-install: macos-bundle
 	@echo "Installing $(BUNDLE_NAME) to $(INSTALL_DIR)..."
 	@# --- Error Handling: Check if the bundle exists ---
 	@[ -d "$(BUNDLE_NAME)" ] || { echo "Error: Bundle not found: $(BUNDLE_NAME)! Run 'make macos-bundle' first."; exit 1; }
-	# --- End Error Handling ---
-	# Create the destination directory if it doesn't exist
-	mkdir -p "$(INSTALL_DIR)" || { echo "Error creating install directory: $(INSTALL_DIR)!"; exit 1; }
-	# Copy the bundle, replacing if it already exists
-	cp -R "$(BUNDLE_NAME)" "$(INSTALL_DIR)/" || { echo "Error copying bundle to $(INSTALL_DIR)!"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "Error creating install directory: $(INSTALL_DIR)!"; exit 1; }
+	@cp -R "$(BUNDLE_NAME)" "$(INSTALL_DIR)/" || { echo "Error copying bundle to $(INSTALL_DIR)!"; exit 1; }
 	@echo "Installation of bundle complete."
 	@# Note: For system-wide install (INSTALL_ROOT=/), you typically need to run this with sudo.
 
 # Install the standalone LaunchAgent plist file to the LaunchAgents folder based on INSTALL_ROOT
 install-plist: generate-launchagent-plist
 	@echo "Installing LaunchAgent plist $(LAUNCHAGENT_PLIST_SRC) to $(INSTALLED_LAUNCHAGENT_PLIST)..."
-	@# --- Error Handling: Check if the standalone launchagent plist exists ---
 	@[ -f "$(LAUNCHAGENT_PLIST_SRC)" ] || { echo "Error: Standalone LaunchAgent plist not found: $(LAUNCHAGENT_PLIST_SRC)! Run 'make generate-launchagent-plist' first."; exit 1; }
-	# --- End Error Handling ---
-	# Create the destination directory if it doesn't exist
-	mkdir -p "$(LAUNCHAGENTS_DIR)" || { echo "Error creating LaunchAgents directory: $(LAUNCHAGENTS_DIR)!"; exit 1; }
-	# Copy the plist file, renaming it to the bundle ID
-	cp "$(LAUNCHAGENT_PLIST_SRC)" "$(INSTALLED_LAUNCHAGENT_PLIST)" || { echo "Error copying plist to $(LAUNCHAGENTS_DIR)!"; exit 1; }
+	@mkdir -p "$(LAUNCHAGENTS_DIR)" || { echo "Error creating LaunchAgents directory: $(LAUNCHAGENTS_DIR)!"; exit 1; }
+	@cp "$(LAUNCHAGENT_PLIST_SRC)" "$(INSTALLED_LAUNCHAGENT_PLIST)" || { echo "Error copying plist to $(LAUNCHAGENTS_DIR)!"; exit 1; }
 	@echo "Installation of LaunchAgent plist complete."
 	@echo "Note: You may need to load the agent using 'launchctl load $(INSTALLED_LAUNCHAGENT_PLIST)'"
 	@# Note: For system-wide install (INSTALL_ROOT=/), this targets /Library/LaunchAgents.
