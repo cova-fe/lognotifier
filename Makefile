@@ -157,7 +157,7 @@ show-version:
 
 bump-major:
 	@echo "Bumping major version..."
-	@VERSION="$(call read-version);" \
+	@VERSION="$(call read-version)" \
 	MAJOR=$$(echo $$VERSION | cut -d. -f1); \
 	NEW_MAJOR=$$((MAJOR + 1)); \
 	NEW_VERSION=$${NEW_MAJOR}.0.0; \
@@ -166,7 +166,7 @@ bump-major:
 
 bump-minor:
 	@echo "Bumping minor version..."
-	@VERSION="$(call read-version);" \
+	@VERSION="$(call read-version)" \
 	MAJOR=$$(echo $$VERSION | cut -d. -f1); \
 	MINOR=$$(echo $$VERSION | cut -d. -f2); \
 	NEW_MINOR=$$((MINOR + 1)); \
@@ -176,7 +176,7 @@ bump-minor:
 
 bump-patch:
 	@echo "Bumping patch version..."
-	@VERSION="$(call read-version);" \
+	@VERSION="$(call read-version)" \
 	MAJOR=$$(echo $$VERSION | cut -d. -f1); \
 	MINOR=$$(echo $$VERSION | cut -d. -f2); \
 	PATCH=$$(echo $$VERSION | cut -d. -f3); \
@@ -189,8 +189,7 @@ git-tag:
 	@echo "Creating Git tag..."
 	@[ -f $(VERSION_FILE) ] || { echo "Error: $(VERSION_FILE) not found!"; exit 1; }; \
 	# Optional: Also check format if strict format is required for tags
-	# grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' $(VERSION_FILE) || { echo "Error: $(VERSION_FILE) content is not in major.minor.patch format!"; exit 1; }; \
-	# --- End Error Handling ---
+	@grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' $(VERSION_FILE) || { echo "Error: $(VERSION_FILE) content is not in major.minor.patch format!"; exit 1; }; \
 	NEW_VERSION=$$(cat $(VERSION_FILE)); \
 	echo "Tagging version $${NEW_VERSION}"; \
 	git tag -a "v$${NEW_VERSION}" -m "Release version $${NEW_VERSION}"; \
