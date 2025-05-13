@@ -2,13 +2,14 @@ APP_NAME := lognotifier
 VERSION := $(shell cat VERSION)
 BUILD_TIME := $(shell date -u +"%Y-%m-%dTH%H:%M:%SZ")
 VERSION_FILE := VERSION
+ORG_NAME := com.example
 
 # Variable for the single source PNG icon file
 # Recommended minimum size is 1024x1024 pixels for best results across all resolutions.
 ICON_PNG := assets/source_icon.png
 
 # Variable for the macOS bundle identifier (e.g., com.yourcompany.appname)
-BUNDLE_ID := com.example.$(APP_NAME)
+BUNDLE_ID := $(ORG_NAME).$(APP_NAME)
 
 # Variables for the bundle structure
 BUNDLE_NAME := $(APP_NAME).app
@@ -27,6 +28,7 @@ LAUNCHAGENT_PLIST_SRC := $(BUNDLE_ID).LaunchAgent.plist
 
 # --- Installation Variables ---
 
+BIN_DIR ?= $(shell pwd)
 # Base directory for installation. Defaults to user's home directory.
 # Override with 'INSTALL_ROOT=/' for system-wide installation (requires sudo).
 INSTALL_ROOT := $(HOME)
@@ -40,20 +42,14 @@ LAUNCHAGENTS_DIR := $(INSTALL_ROOT)/Library/LaunchAgents
 # Path for the installed LaunchAgent plist file
 INSTALLED_LAUNCHAGENT_PLIST := $(LAUNCHAGENTS_DIR)/$(BUNDLE_ID).plist
 
-# Path to the executable that the LaunchAgent plist will reference in ProgramArguments.
-# Defaults to the absolute path of the executable built in the current directory.
-# IMPORTANT: If you install the executable elsewhere (e.g., /usr/local/bin), you MUST
-# override this variable when generating/installing the launchagent plist.
-LAUNCHD_EXEC_PATH := $(shell realpath $(APP_NAME))
+LAUNCHD_EXEC_PATH := $(BIN_DIR)/$(APP_NAME)
 
 # --- End Installation Variables ---
-
 
 # Variable for the temporary base directory for icon creation
 TEMP_BASE_DIR := $(shell mktemp -p /tmp -d -t $(APP_NAME)_icon_XXXX)
 # Variable for the actual iconset directory (must end with .iconset)
 ICONSET_DIR := $(TEMP_BASE_DIR)/AppIcon.iconset
-@echo "Temporary iconset directory: $(ICONSET_DIR)"
 
 define read-version
 	$(shell cat $(VERSION_FILE) | awk '{$$1=$$1};1')
@@ -100,24 +96,22 @@ cat <<EOF > "$(LAUNCHAGENT_PLIST_SRC)"
 	<key>ProgramArguments</key>
 	<array>
 		<string>$(LAUNCHD_EXEC_PATH)</string>
-		# Add any command line arguments here as <string> items
-		# <string>--config</string>
-		# <string>/path/to/config.yaml</string>
+		<!-- Add command line arguments here -->
+		<!-- <string>-log</string> -->
+		<!-- <string>/path/log/file.log</string> -->
+		<!-- <string>-search</string> -->
+		<!-- <string>Disaster</string> -->
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
 	<false/>
 
-	# Optional keys for logging stdout and stderr
-	# <key>StandardOutPath</key>
-	# <string>$(HOME)/Library/Logs/$(APP_NAME)_stdout.log</string> # Use $(HOME) for user path
-	# <key>StandardErrorPath</key>
-	# <string>$(HOME)/Library/Logs/$(APP_NAME)_stderr.log</string> # Use $(HOME) for user path
-
-	# Optional: Set working directory
-	# <key>WorkingDirectory</key>
-	# <string>/path/where/your/executable/should/run</string> # e.g., $(shell dirname $(LAUNCHD_EXEC_PATH))
+	<!-- Uncomment the following lines to set the stdout/stderr paths -->
+	<!-- <key>StandardOutPath</key> -->
+	<!-- <string>$(HOME)/Library/Logs/lognotifier_stdout.log</string> -->
+	<!-- <key>StandardErrorPath</key> -->
+	<!-- <string>$(HOME)/Library/Logs/lognotifier_stderr.log</string> -->
 
 </dict>
 </plist>
@@ -126,20 +120,19 @@ EOF
 endef
 export heredoc_launchagent_plist
 
-
-# Added specific plist generation targets and updated install targets
-.PHONY: all build clean run git-tag bump-patch bump-minor bump-major macos-bundle generate-bundle-plist generate-launchagent-plist macos-install install-plist show-version
+.PHONY: all build clean git-tag bump-patch bump-minor bump-major macos-bundle generate-bundle-plist generate-launchagent-plist macos-install install-plist show-version
 
 all: build
 
-# Build the app using the version and build time
 build:
-	@echo "Building $(APP_NAME) version $(VERSION) with build time $(BUILD_TIME)..."; \
+	@echo "Building $(APP_NAME) version $(VERSION) with build time $(BUILD_TIME)"; \
 	go build -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)" -o $(APP_NAME) main.go;
 
-# Clean build artifacts, including both types of standalone plists and the installed launchagent plist
+install-bin: build
+	mv $(APP_NAME) "$(LAUNCHD_EXEC_PATH)"
+
 clean:
-	@echo "Cleaning build artifacts..."
+	@echo "Cleaning build artifacts"
 	rm -f $(APP_NAME)
 	rm -rf "$(BUNDLE_NAME)"
 	rm -f "$(BUNDLE_PLIST_SRC)"
@@ -148,15 +141,11 @@ clean:
 	rm -f "$(INSTALLED_LAUNCHAGENT_PLIST)"
 	rm -rf "$(TEMP_BASE_DIR)"
 
-# Run the app
-run: build
-	./$(APP_NAME)
-
 show-version:
 	@echo "Current version: $(call read-version)"
 
 bump-major:
-	@echo "Bumping major version..."
+	@echo "Bumping major version"
 	@VERSION="$(call read-version)" \
 	MAJOR=$$(echo $$VERSION | cut -d. -f1); \
 	NEW_MAJOR=$$((MAJOR + 1)); \
@@ -165,7 +154,7 @@ bump-major:
 	echo "$$NEW_VERSION" > $(VERSION_FILE)
 
 bump-minor:
-	@echo "Bumping minor version..."
+	@echo "Bumping minor version"
 	@VERSION="$(call read-version)" \
 	MAJOR=$$(echo $$VERSION | cut -d. -f1); \
 	MINOR=$$(echo $$VERSION | cut -d. -f2); \
@@ -175,7 +164,7 @@ bump-minor:
 	echo "$$NEW_VERSION" > $(VERSION_FILE)
 
 bump-patch:
-	@echo "Bumping patch version..."
+	@echo "Bumping patch version"
 	@VERSION="$(call read-version)" \
 	MAJOR=$$(echo $$VERSION | cut -d. -f1); \
 	MINOR=$$(echo $$VERSION | cut -d. -f2); \
@@ -186,10 +175,9 @@ bump-patch:
 	echo "$$NEW_VERSION" > $(VERSION_FILE)
 
 git-tag:
-	@echo "Creating Git tag..."
+	@echo "Creating Git tag"
 	@[ -f $(VERSION_FILE) ] || { echo "Error: $(VERSION_FILE) not found!"; exit 1; }; \
-	# Optional: Also check format if strict format is required for tags
-	@grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' $(VERSION_FILE) || { echo "Error: $(VERSION_FILE) content is not in major.minor.patch format!"; exit 1; }; \
+	grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' $(VERSION_FILE) || { echo "Error: $(VERSION_FILE) content is not in major.minor.patch format!"; exit 1; }; \
 	NEW_VERSION=$$(cat $(VERSION_FILE)); \
 	echo "Tagging version $${NEW_VERSION}"; \
 	git tag -a "v$${NEW_VERSION}" -m "Release version $${NEW_VERSION}"; \
@@ -197,7 +185,7 @@ git-tag:
 
 # Generate the standalone Info.plist file for the macOS application bundle
 generate-bundle-plist:
-	@echo "Generating bundle Info.plist: $(BUNDLE_PLIST_SRC)..."
+	@echo "Generating bundle Info.plist: $(BUNDLE_PLIST_SRC)"
 	@sh -c '\
 	[ -n "$(APP_NAME)" ] || { echo "Error: APP_NAME variable is not set!"; exit 1; }; \
 	[ -n "$(BUNDLE_ID)" ] || { echo "Error: BUNDLE_ID variable is not set!"; exit 1; }; \
@@ -205,11 +193,11 @@ generate-bundle-plist:
 	grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' $(VERSION_FILE) || { echo "Error: $(VERSION_FILE) content is not in major.minor.patch format!"; exit 1; }'\
 	; \
 	eval "$$heredoc_bundle_plist"
-	echo "$(BUNDLE_PLIST_SRC) generated."
+	@echo "$(BUNDLE_PLIST_SRC) generated."
 
 # Generate the standalone plist file for a LaunchAgent
 generate-launchagent-plist: build
-	@echo "Generating LaunchAgent plist: $(LAUNCHAGENT_PLIST_SRC)..."
+	@echo "Generating LaunchAgent plist: $(LAUNCHAGENT_PLIST_SRC)"
 	@sh -c '\
 	[ -n "$(APP_NAME)" ] || { echo "Error: APP_NAME variable is not set!"; exit 1; }; \
 	[ -n "$(BUNDLE_ID)" ] || { echo "Error: BUNDLE_ID variable is not set!"; exit 1; }; \
@@ -219,11 +207,11 @@ generate-launchagent-plist: build
 	[ -x "$(LAUNCHD_EXEC_PATH)" ] || { echo "Warning: LAUNCHD_EXEC_PATH ($(LAUNCHD_EXEC_PATH)) does not exist or is not executable at build time. Ensure the path is correct for the runtime environment."; }'\
 	; \
 	eval "$$heredoc_launchagent_plist"
-	echo "$(LAUNCHAGENT_PLIST_SRC) generated."
+	@echo "$(LAUNCHAGENT_PLIST_SRC) generated."
 
 # Create a macOS application bundle (.app)
 macos-bundle: build generate-bundle-plist
-	@echo "Creating macOS bundle $(BUNDLE_NAME)..."
+	@echo "Creating macOS bundle $(BUNDLE_NAME)"
 	@sh -c '\
 	[ -n "$(ICON_PNG)" ] || { echo "Error: ICON_PNG variable is not set!"; exit 1; }; \
 	[ -f "$(ICON_PNG)" ] || { echo "Error: ICON_PNG file not found: $(ICON_PNG)!"; exit 1; }; \
@@ -233,7 +221,7 @@ macos-bundle: build generate-bundle-plist
 	mkdir -p "$(MACOS_DIR)" "$(RESOURCES_DIR)"; \
 	cp "$(APP_NAME)" "$(BUNDLE_EXECUTABLE)"; \
 	cp "$(BUNDLE_PLIST_SRC)" "$(BUNDLE_PLIST_DEST)"; \
-	echo "Generating iconset from $(ICON_PNG) in temporary directory $(ICONSET_DIR)..."; \
+	echo "Generating iconset from $(ICON_PNG) in temporary directory $(ICONSET_DIR)"; \
 	mkdir -p "$(ICONSET_DIR)"; \
 	sips -z 16 16 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_16x16.png" || { echo "Error generating icon_16x16.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
 	sips -z 32 32 "$(ICON_PNG)" --out "$(ICONSET_DIR)/icon_16x16@2x.png" || { echo "Error generating icon_16x16@2x.png!"; rm -rf "$(TEMP_BASE_DIR)"; exit 1; }; \
@@ -252,7 +240,7 @@ macos-bundle: build generate-bundle-plist
 
 # Install the macOS application bundle to the Applications folder based on INSTALL_ROOT
 macos-install: macos-bundle
-	@echo "Installing $(BUNDLE_NAME) to $(INSTALL_DIR)..."
+	@echo "Installing $(BUNDLE_NAME) to $(INSTALL_DIR)"
 	@# --- Error Handling: Check if the bundle exists ---
 	@[ -d "$(BUNDLE_NAME)" ] || { echo "Error: Bundle not found: $(BUNDLE_NAME)! Run 'make macos-bundle' first."; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "Error creating install directory: $(INSTALL_DIR)!"; exit 1; }
@@ -261,8 +249,8 @@ macos-install: macos-bundle
 	@# Note: For system-wide install (INSTALL_ROOT=/), you typically need to run this with sudo.
 
 # Install the standalone LaunchAgent plist file to the LaunchAgents folder based on INSTALL_ROOT
-install-plist: generate-launchagent-plist
-	@echo "Installing LaunchAgent plist $(LAUNCHAGENT_PLIST_SRC) to $(INSTALLED_LAUNCHAGENT_PLIST)..."
+install-plist: generate-launchagent-plist install-bin
+	@echo "Installing LaunchAgent plist $(LAUNCHAGENT_PLIST_SRC) to $(INSTALLED_LAUNCHAGENT_PLIST)"
 	@[ -f "$(LAUNCHAGENT_PLIST_SRC)" ] || { echo "Error: Standalone LaunchAgent plist not found: $(LAUNCHAGENT_PLIST_SRC)! Run 'make generate-launchagent-plist' first."; exit 1; }
 	@mkdir -p "$(LAUNCHAGENTS_DIR)" || { echo "Error creating LaunchAgents directory: $(LAUNCHAGENTS_DIR)!"; exit 1; }
 	@cp "$(LAUNCHAGENT_PLIST_SRC)" "$(INSTALLED_LAUNCHAGENT_PLIST)" || { echo "Error copying plist to $(LAUNCHAGENTS_DIR)!"; exit 1; }
