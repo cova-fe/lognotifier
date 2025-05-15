@@ -1,4 +1,5 @@
 APP_NAME := lognotifier
+DISPLAY_NAME := LogNotifier
 VERSION := $(shell cat VERSION)
 BUILD_TIME := $(shell date -u +"%Y-%m-%dTH%H:%M:%SZ")
 VERSION_FILE := VERSION
@@ -28,7 +29,6 @@ LAUNCHAGENT_PLIST_SRC := $(BUNDLE_ID).LaunchAgent.plist
 
 # --- Installation Variables ---
 
-BIN_DIR ?= $(shell pwd)
 # Base directory for installation. Defaults to user's home directory.
 # Override with 'INSTALL_ROOT=/' for system-wide installation (requires sudo).
 INSTALL_ROOT := $(HOME)
@@ -42,7 +42,7 @@ LAUNCHAGENTS_DIR := $(INSTALL_ROOT)/Library/LaunchAgents
 # Path for the installed LaunchAgent plist file
 INSTALLED_LAUNCHAGENT_PLIST := $(LAUNCHAGENTS_DIR)/$(BUNDLE_ID).plist
 
-LAUNCHD_EXEC_PATH := $(BIN_DIR)/$(APP_NAME)
+LAUNCHD_EXEC_PATH := $(BUNDLE_EXECUTABLE)
 
 # --- End Installation Variables ---
 
@@ -61,6 +61,8 @@ cat <<EOF > "$(BUNDLE_PLIST_SRC)"
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>CFBundleName</key>
+  <string>$(DISPLAY_NAME)</string>
 	<key>CFBundleExecutable</key>
 	<string>$(APP_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -75,9 +77,9 @@ cat <<EOF > "$(BUNDLE_PLIST_SRC)"
 	<string>????</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
 	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSUIElement</key>
 	<true/>
 </dict>
 </plist>
@@ -95,7 +97,10 @@ cat <<EOF > "$(LAUNCHAGENT_PLIST_SRC)"
 	<string>$(BUNDLE_ID)</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>$(LAUNCHD_EXEC_PATH)</string>
+    <string>/usr/bin/open</string>
+    <string>-a</string>
+    <string>$(INSTALL_DIR)/$(BUNDLE_NAME)</string>
+    <!-- <string>- -args</string> FIX THE DASHES -->
 		<!-- Add command line arguments here -->
 		<!-- <string>-log</string> -->
 		<!-- <string>/path/log/file.log</string> -->
@@ -106,12 +111,14 @@ cat <<EOF > "$(LAUNCHAGENT_PLIST_SRC)"
 	<true/>
 	<key>KeepAlive</key>
 	<false/>
+	<key>ProcessType</key>
+	<string>Background</string>
 
 	<!-- Uncomment the following lines to set the stdout/stderr paths -->
 	<!-- <key>StandardOutPath</key> -->
-	<!-- <string>$(HOME)/Library/Logs/lognotifier_stdout.log</string> -->
+	<!-- <string>$(HOME)/Library/Logs/$(DISPLAY_NAME)/stdout.log</string> -->
 	<!-- <key>StandardErrorPath</key> -->
-	<!-- <string>$(HOME)/Library/Logs/lognotifier_stderr.log</string> -->
+	<!-- <string>$(HOME)/Library/Logs/$(DISPLAY_NAME)/stderr.log</string> -->
 
 </dict>
 </plist>
@@ -126,10 +133,12 @@ all: build
 
 build:
 	@echo "Building $(APP_NAME) version $(VERSION) with build time $(BUILD_TIME)"; \
-	go build -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)" -o $(APP_NAME) main.go;
+	go build -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.bundleIdent=$(BUNDLE_ID)" -o $(APP_NAME) main.go;
 
 install-bin: build
-	mv $(APP_NAME) "$(LAUNCHD_EXEC_PATH)"
+	@echo "Installing $(APP_NAME) to $(INSTALL_DIR)"/$(BUNDLE_EXECUTABLE)
+	@cp "$(APP_NAME)" "$(INSTALL_DIR)/$(BUNDLE_EXECUTABLE)" || { echo "Error copying binary to $(INSTALL_DIR)/$(BUNDLE_EXECUTABLE)!"; exit 1; }
+	@echo "Installation of binary complete."
 
 clean:
 	@echo "Cleaning build artifacts"
@@ -196,7 +205,7 @@ generate-bundle-plist:
 	@echo "$(BUNDLE_PLIST_SRC) generated."
 
 # Generate the standalone plist file for a LaunchAgent
-generate-launchagent-plist: build
+generate-launchagent-plist:
 	@echo "Generating LaunchAgent plist: $(LAUNCHAGENT_PLIST_SRC)"
 	@sh -c '\
 	[ -n "$(APP_NAME)" ] || { echo "Error: APP_NAME variable is not set!"; exit 1; }; \
@@ -238,18 +247,8 @@ macos-bundle: build generate-bundle-plist
 
 	@echo "Bundle created: $(BUNDLE_NAME)"
 
-# Install the macOS application bundle to the Applications folder based on INSTALL_ROOT
-macos-install: macos-bundle
-	@echo "Installing $(BUNDLE_NAME) to $(INSTALL_DIR)"
-	@# --- Error Handling: Check if the bundle exists ---
-	@[ -d "$(BUNDLE_NAME)" ] || { echo "Error: Bundle not found: $(BUNDLE_NAME)! Run 'make macos-bundle' first."; exit 1; }
-	@mkdir -p "$(INSTALL_DIR)" || { echo "Error creating install directory: $(INSTALL_DIR)!"; exit 1; }
-	@cp -R "$(BUNDLE_NAME)" "$(INSTALL_DIR)/" || { echo "Error copying bundle to $(INSTALL_DIR)!"; exit 1; }
-	@echo "Installation of bundle complete."
-	@# Note: For system-wide install (INSTALL_ROOT=/), you typically need to run this with sudo.
-
 # Install the standalone LaunchAgent plist file to the LaunchAgents folder based on INSTALL_ROOT
-install-plist: generate-launchagent-plist install-bin
+install-plist: generate-launchagent-plist
 	@echo "Installing LaunchAgent plist $(LAUNCHAGENT_PLIST_SRC) to $(INSTALLED_LAUNCHAGENT_PLIST)"
 	@[ -f "$(LAUNCHAGENT_PLIST_SRC)" ] || { echo "Error: Standalone LaunchAgent plist not found: $(LAUNCHAGENT_PLIST_SRC)! Run 'make generate-launchagent-plist' first."; exit 1; }
 	@mkdir -p "$(LAUNCHAGENTS_DIR)" || { echo "Error creating LaunchAgents directory: $(LAUNCHAGENTS_DIR)!"; exit 1; }
@@ -258,3 +257,16 @@ install-plist: generate-launchagent-plist install-bin
 	@echo "Note: You may need to load the agent using 'launchctl load $(INSTALLED_LAUNCHAGENT_PLIST)'"
 	@# Note: For system-wide install (INSTALL_ROOT=/), this targets /Library/LaunchAgents.
 	@# You typically need to run this with sudo for system-wide installation.
+# Install the macOS application bundle to the Applications folder based on INSTALL_ROOT
+
+install-bundle: macos-bundle
+	@echo "Installing $(BUNDLE_NAME) to $(INSTALL_DIR)"
+	@# --- Error Handling: Check if the bundle exists ---
+	@[ -d "$(BUNDLE_NAME)" ] || { echo "Error: Bundle not found: $(BUNDLE_NAME)! Run 'make macos-bundle' first."; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "Error creating install directory: $(INSTALL_DIR)!"; exit 1; }
+	@cp -R "$(BUNDLE_NAME)" "$(INSTALL_DIR)/" || { echo "Error copying bundle to $(INSTALL_DIR)!"; exit 1; }
+	@echo "Installation of bundle complete."
+	@# Note: For system-wide install (INSTALL_ROOT=/), you typically need to run this with sudo.
+
+macos-install: install-bundle install-plist
+
