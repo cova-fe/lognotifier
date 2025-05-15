@@ -126,7 +126,7 @@ all: build
 
 build:
 	@echo "Building $(APP_NAME) version $(VERSION) with build time $(BUILD_TIME)"; \
-	go build -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)" -o $(APP_NAME) main.go;
+	go build -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.bundleIdent=$(BUNDLE_ID)" -o $(APP_NAME) main.go;
 
 install-bin: build
 	mv $(APP_NAME) "$(LAUNCHD_EXEC_PATH)"

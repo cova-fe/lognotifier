@@ -14,9 +14,20 @@ import (
 )
 
 var (
-	version   = "dev"
-	buildTime = "unknown"
+	version     = "dev"
+	buildTime   = "unknown"
+	bundleIdent = "com.example.lognotifier"
 )
+
+func init() {
+	// Override the default Usage function
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Version: %s (built %s, bundleIdent %s)\n", version, buildTime, bundleIdent)
+		fmt.Fprintln(os.Stderr)
+		flag.PrintDefaults()
+	}
+}
 
 func main() {
 	searchStrings := flag.String("search", "", "Comma-separated list of strings to search for in the log")
@@ -65,7 +76,8 @@ func main() {
 				notifyText := line.Text[idx:]
 				note := gosxnotifier.NewNotification(notifyText)
 				note.Title = *notificationString
-				note.Group = strings.ToLower(*notificationString)
+				// note.Group = strings.ToLower(*notificationString)
+				note.Sender = bundleIdent
 				if err := note.Push(); err != nil {
 					log.Printf("Notification error: %v", err)
 				} else {
