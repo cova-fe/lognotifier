@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	gosxnotifier "github.com/deckarep/gosx-notifier"
 	"github.com/nxadm/tail"
@@ -165,14 +166,7 @@ func sleepCtx(ctx context.Context, sec int) <-chan struct{} {
 func timeAfterSeconds(sec int) <-chan struct{} {
 	ch := make(chan struct{})
 	go func() {
-		// avoid importing time at top
-		var sleep = func(s int) {
-			for i := 0; i < s; i++ {
-				// Sleep 1 second at a time so we can exit promptly on signal
-				syscall.Sleep(1)
-			}
-		}
-		sleep(sec)
+		time.Sleep(time.Duration(sec) * time.Second)
 		close(ch)
 	}()
 	return ch
